@@ -167,26 +167,9 @@ struct ModelInfo: Identifiable, Codable, Equatable {
         self.enabled = enabled
     }
     
-    /// Returns the formatted display name with multiplier (e.g., "Claude Sonnet 4 (1.5x)")
+    /// Returns the display name shown in the model picker
     var displayName: String {
-        let formattedMultiplier = multiplierFormatted
-        return "\(name) (\(formattedMultiplier))"
-    }
-    
-    /// Returns the formatted multiplier value (e.g., "0x", "1x", "0.33x", "3x")
-    var multiplierFormatted: String {
-        // Remove trailing zeros and format cleanly
-        let rounded = (multiplier * 100).rounded() / 100
-        if rounded.truncatingRemainder(dividingBy: 1) == 0 {
-            // Whole number: "1x", "3x"
-            return "\(Int(rounded))x"
-        } else {
-            // Decimal: "0.33x", "1.5x"
-            // Use string formatting to remove unnecessary trailing zeros
-            let formatted = String(format: "%.2f", rounded)
-            let trimmed = formatted.replacingOccurrences(of: #"\.?0+$"#, with: "", options: .regularExpression)
-            return "\(trimmed)x"
-        }
+        name
     }
 }
 
