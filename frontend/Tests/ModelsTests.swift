@@ -208,44 +208,13 @@ struct ModelsTests {
         #expect(model.enabled)
     }
     
-    @Test func testModelInfoMultiplierFormatting() {
-        // Test whole numbers
-        let model1 = ModelInfo(id: "test-1", name: "Test Model 1", multiplier: 0.0)
-        #expect(model1.multiplierFormatted == "0x")
-        
-        let model2 = ModelInfo(id: "test-2", name: "Test Model 2", multiplier: 1.0)
-        #expect(model2.multiplierFormatted == "1x")
-        
-        let model3 = ModelInfo(id: "test-3", name: "Test Model 3", multiplier: 3.0)
-        #expect(model3.multiplierFormatted == "3x")
-        
-        // Test decimals
-        let model4 = ModelInfo(id: "test-4", name: "Test Model 4", multiplier: 0.33)
-        #expect(model4.multiplierFormatted == "0.33x")
-        
-        let model5 = ModelInfo(id: "test-5", name: "Test Model 5", multiplier: 1.5)
-        #expect(model5.multiplierFormatted == "1.5x")
-        
-        let model6 = ModelInfo(id: "test-6", name: "Test Model 6", multiplier: 2.25)
-        #expect(model6.multiplierFormatted == "2.25x")
-        
-        // Test rounding edge cases (should round to 2 decimals)
-        let model7 = ModelInfo(id: "test-7", name: "Test Model 7", multiplier: 1.555)
-        #expect(model7.multiplierFormatted == "1.56x")
-    }
-    
     @Test func testModelInfoDisplayName() {
+        // Display name no longer includes the billing multiplier
         let model1 = ModelInfo(id: "claude-sonnet-4", name: "Claude Sonnet 4", multiplier: 1.5)
-        #expect(model1.displayName == "Claude Sonnet 4 (1.5x)")
-        
+        #expect(model1.displayName == "Claude Sonnet 4")
+
         let model2 = ModelInfo(id: "gpt-5", name: "GPT-5", multiplier: 1.0)
-        #expect(model2.displayName == "GPT-5 (1x)")
-        
-        let model3 = ModelInfo(id: "free-model", name: "Free Model", multiplier: 0.0)
-        #expect(model3.displayName == "Free Model (0x)")
-        
-        let model4 = ModelInfo(id: "lite-model", name: "Lite Model", multiplier: 0.33)
-        #expect(model4.displayName == "Lite Model (0.33x)")
+        #expect(model2.displayName == "GPT-5")
     }
     
     // MARK: - Tag Tests

@@ -2,15 +2,18 @@
  * GitHub Copilot SDK Service
  *
  * Wraps the official GitHub Copilot SDK for session management and message handling.
+ * The SDK (v1.x) bundles the Copilot runtime and hosts it in-process.
  * Requires:
- * - GitHub Copilot CLI to be installed and in PATH
- * - Authenticated via `copilot auth login`
+ * - Authenticated via `copilot auth login` (or GITHUB_TOKEN)
  * - Active Copilot subscription (Pro/Enterprise)
  *
  * @see https://github.com/github/copilot-sdk
  */
 
 import { approveAll, CopilotClient, CopilotSession } from "@github/copilot-sdk";
+import { createRequire } from "node:module";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import {
   ModelInfoSimple,
   AgentInfo,
@@ -20,6 +23,30 @@ import {
 } from "../types/index.js";
 import type { ModelInfo as SDKModelInfo } from "@github/copilot-sdk";
 import { config } from "../config.js";
+
+/**
+ * Resolve the CLI entrypoint bundled with @github/copilot.
+ * The SDK's own ESM resolver requires the platform package to export the
+ * `./sdk` subpath, which @github/copilot 1.0.81 does not — so locate the
+ * package's index.js on disk instead. COPILOT_CLI_PATH still wins.
+ */
+function resolveBundledCliPath(): string | undefined {
+  if (process.env.COPILOT_CLI_PATH) {
+    return process.env.COPILOT_CLI_PATH;
+  }
+  const require = createRequire(import.meta.url);
+  const variants = process.platform === "linux" ? ["linux", "linuxmusl"] : [process.platform];
+  const searchPaths = require.resolve.paths("@github/copilot") ?? [];
+  for (const base of searchPaths) {
+    for (const variant of variants) {
+      const candidate = join(base, "@github", `copilot-${variant}-${process.arch}`, "index.js");
+      if (existsSync(candidate)) {
+        return candidate;
+      }
+    }
+  }
+  return undefined;
+}
 
 // Session wrapper with metadata
 interface SessionWrapper {
@@ -63,11 +90,11 @@ class CopilotService {
       console.log("🔌 Connecting to GitHub Copilot CLI...");
 
       // Create the Copilot client
-      // The SDK will communicate with the Copilot CLI via JSON-RPC
+      // SDK v1.x bundles the Copilot CLI runtime and spawns it over stdio
+      const cliPath = resolveBundledCliPath();
       this.client = new CopilotClient({
         logLevel: config.sdk.logLevel as "info" | "error" | "none" | "warning" | "debug" | "all",
-        autoStart: true,
-        autoRestart: true,
+        ...(cliPath ? { connection: { kind: "stdio", path: cliPath } } : {}),
       });
 
       // Start the client (connects to CLI)
@@ -505,8 +532,8 @@ class CopilotService {
     }
 
     try {
-      const messages = await wrapper.session.getMessages();
-      return messages;
+      const events = await wrapper.session.getEvents();
+      return events;
     } catch {
       return [];
     }
@@ -514,12 +541,12 @@ class CopilotService {
 
   /**
    * Update session model with context preservation
-   * To change model, we need to create a new session and inject existing context
+   * The SDK switches the model in place; conversation history is preserved
    */
   async updateSessionModel(
     conversationId: string,
     model: string,
-    preserveHistory: CopilotMessage[] = []
+    _preserveHistory: CopilotMessage[] = []
   ): Promise<boolean> {
     const existing = this.sessions.get(conversationId);
     if (!existing) {
@@ -527,36 +554,18 @@ class CopilotService {
       return false;
     }
 
-    // If model is the same, no need to recreate
     if (existing.model === model) {
       console.log(`Model already set to ${model} for session ${conversationId}`);
       return true;
     }
 
     try {
-      // Destroy old session
-      await existing.session.destroy();
-      this.sessions.delete(conversationId);
-
-      // Create new session with new model
-      await this.createSession(conversationId, model);
-
-      // Inject preserved history if provided
-      if (preserveHistory.length > 0) {
-        await this.injectConversationHistory(conversationId, preserveHistory);
-      }
-
+      await existing.session.setModel(model);
       console.log(`🔄 Updated session ${conversationId} model from ${existing.model} to: ${model}`);
+      existing.model = model;
       return true;
     } catch (error) {
       console.error(`Failed to update session model: ${error}`);
-      // Try to restore the old session
-      try {
-        await this.createSession(conversationId, existing.model);
-        console.log(`♻️ Restored session with original model: ${existing.model}`);
-      } catch (restoreError) {
-        console.error(`Failed to restore session: ${restoreError}`);
-      }
       return false;
     }
   }
@@ -568,7 +577,7 @@ class CopilotService {
     const wrapper = this.sessions.get(conversationId);
     if (wrapper) {
       try {
-        await wrapper.session.destroy();
+        await wrapper.session.disconnect();
         this.sessions.delete(conversationId);
         console.log(`🗑️ Destroyed session: ${conversationId}`);
         return true;
@@ -633,7 +642,7 @@ class CopilotService {
       const idleTime = now - wrapper.lastActiveAt.getTime();
       if (idleTime > SESSION_IDLE_TIMEOUT_MS) {
         try {
-          await wrapper.session.destroy();
+          await wrapper.session.disconnect();
           this.sessions.delete(id);
           cleanedCount++;
           console.log(`🧹 Cleaned up idle session: ${id}`);
@@ -679,7 +688,7 @@ class CopilotService {
     // Destroy all sessions
     for (const [id, wrapper] of this.sessions) {
       try {
-        await wrapper.session.destroy();
+        await wrapper.session.disconnect();
         console.log(`🗑️ Destroyed session: ${id}`);
       } catch {
         // Ignore errors during shutdown
